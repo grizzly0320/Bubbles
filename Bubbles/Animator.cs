@@ -1,14 +1,11 @@
-﻿using System;
+﻿using Bubbles;
+using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Numerics;
-using System.Reflection.Metadata;
-using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
-using System.Xml.Linq;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
+using System.Windows.Forms.VisualStyles;
 
 namespace Bubbles
 {
@@ -16,103 +13,103 @@ namespace Bubbles
     {
         private Circle c;
         private Thread? t = null;
-        private Thread? f = null;
         public bool IsAlive => t == null || t.IsAlive;
-        public bool IsfAlive => f == null || t.IsAlive;
-        private Random rnd = new Random();
         public Size ContainerSize { get; set; }
+        //private Random r = new Random();
         private static List<Circle> circles = new();
 
         public Animator(Size containerSize)
         {
+            Random rnd = new Random();
             ContainerSize = containerSize;
             c = new Circle(50, rnd.Next(75, ContainerSize.Width - 75), rnd.Next(75, ContainerSize.Height - 75));
             circles.Add(c);
         }
-
         public void Start()
         {
-            float dx = RandomInter();
-            float dy = RandomInter();
             t = new Thread(() =>
             {
                 while (IsAlive)
                 {
-                    CheckCollision(circles);
-                    CheckWalls(c);
                     Thread.Sleep(30);
+                    Walls(c);
+                    Collision(circles);
                     c.Move();
-                    //CheckCollision(circles);
                 }
+
             });
             t.IsBackground = true;
             t.Start();
         }
-        private float RandomInter()
-        {
-            int newRandom = 0;
-            while (newRandom == 0)
-            {
-                newRandom = rnd.Next(-5, 5);
-            }
-            return (float)newRandom;
-        }
+
         public void PaintCircle(Graphics g)
         {
             c.Paint(g);
         }
+        private void Walls(Circle c)
+        {
+            if (c.X + c.Diam >= ContainerSize.Width )
+            {
+                c.X -= 5;
+                c.dx = -c.dx;
+            }
+            if (c.X <= 0)
+            {
+                c.X += 5;
+                c.dx = -c.dx;
+            }
+            if (c.Y + c.Diam >= ContainerSize.Height)
+            {
+                c.Y -= 5;
+                c.dy = -c.dy;
+            }
+            if (c.Y <= 0)
+            {
+                c.Y += 5;
+                c.dy = -c.dy;
+            }
 
-        private void CheckCollision(List<Circle> circles)
+        }
+        private void Collision(List<Circle> circles)
         {
             for (int i = 0; i < circles.Count; i++)
             {
                 for (int j = i + 1; j < circles.Count; j++)
                 {
-                    var dx = circles[i].X - circles[j].X;
-                    var dy = circles[i].Y - circles[j].Y;
-                    var dist = Math.Sqrt(dx * dx + dy * dy);
-                    if (dist < (circles[i].Diam / 2 + circles[j].Diam / 2))
+                    var rastX = circles[i].X - circles[j].X;
+                    var rastY = circles[i].Y - circles[j].Y;
+                    var r = circles[i].Diam / 2;
+                    var rast = Math.Sqrt(rastX * rastX + rastY * rastY);
+                    if (rast == 0) rast = 0.01;
+                    var s = rastX / rast; //sin
+                    var e = rastY / rast; //cos
+                    if (rast <= 2 * r)
                     {
-                        var angle = Math.Atan2(dy, dx);
-                        float sin = (float)Math.Sin(angle);
-                        float cos = (float)Math.Cos(angle);
-                        Vector2 pos0 = Rotate(dx, dy, sin, cos, false); ;
-                        Vector2 pos1 = Rotate(dx, dy, sin, cos, false);
-                        Vector2 vel0 = Rotate(circles[i].vx, circles[i].vy, sin, cos, true);
-                        Vector2 vel1 = Rotate(circles[j].vx, circles[j].vy, sin, cos, true);
-                        float vxTotal = vel0.X - vel1.X;
-                        vel1.X = vel0.X;// + vxTotal;
-                        var absV = Math.Abs(vel0.X) + Math.Abs(vel1.X);
-                        var overlap = (circles[i].Diam / 2 + circles[j].Diam / 2) - Math.Abs(pos0.X - pos1.X);
-                        pos0.X += vel0.X / absV * overlap;
-                        pos1.X += vel1.X / absV * overlap;
-                        var pos0F = Rotate(pos0.X, pos0.Y, sin, cos, false);
-                        var pos1F = Rotate(pos1.X, pos1.Y, sin, cos, false);
-                        var vel0F = Rotate(vel0.X, vel0.Y, sin, cos, false);
-                        var vel1F = Rotate(vel1.X, vel1.Y, sin, cos, false);
-                        circles[i].vx = vel0F.X;
-                        circles[i].vy = vel0F.Y;
-                        circles[j].vx = vel1F.X;
-                        circles[j].vy = vel1F.Y;
+                        //переворачиваем систему координат
+                        var Vn1 = circles[j].dx * s + circles[j].dy * e; // находим вектор В1
+                        var Vn2 = circles[i].dx * s + circles[i].dy * e; // находим вектор В2
+                        //слипание шариков
+                        var dt = (r * 2 - rast) / (Vn1 - Vn2);
+                        if (dt > 0.6) dt = 0.6;
+                        if (dt < -0.6) dt = -0.6;
+                        circles[i].X -= circles[i].dx * dt;
+                        circles[i].Y -= circles[i].dy * dt;
+                        circles[j].X -= circles[j].dx * dt;
+                        circles[j].Y -= circles[j].dy * dt;
+
+                        var Vt1 = -circles[j].dx * e + circles[j].dy * s;
+                        var Vt2 = -circles[i].dx * e + circles[i].dy * s;
+                        // меняем местами в1 и в2
+                        var o = Vn2;
+                        Vn2 = Vn1;
+                        Vn1 = o;
+                        //переворачиваем систему координат и меняем направление шариков
+                        circles[i].dx = Vn2 * s - Vt2 * e;
+                        circles[i].dy = Vn2 * e + Vt2 * s;
+                        circles[j].dx = Vn1 * s - Vt1 * e;
+                        circles[j].dy = Vn1 * e + Vt1 * s;
                     }
                 }
-            }
-        }
-        public Vector2 Rotate(float x, float y, float sin, float cos, bool reverse)
-        {
-            float vx = (reverse) ? (x * cos + y * sin) : (x * cos - y * sin);
-            float vy = (reverse) ? (y * cos - x * sin) : (y * cos + x * sin);
-            Vector2 vect = new Vector2(vx, vy);
-            return vect;
-        }
-        public void CheckWalls(Circle c) {
-            if (c.X + c.Diam >= ContainerSize.Width || c.X <= 0)
-            {
-                c.vx = -c.vx;
-            }
-            if (c.Y + c.Diam >= ContainerSize.Height || c.Y <= 0)
-            {
-                c.vy = -c.vy;
             }
         }
     }
